@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Admin Login - Lucky Draw</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body
+    class="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-black to-gray-800 text-white">
+
+    <div class="w-96 bg-white/5 backdrop-blur-xl border border-white/10 p-8 rounded-2xl shadow-xl">
+        <h2 class="text-2xl font-bold text-center mb-6">🔐 Admin Login</h2>
+
+        <input id="username" type="text" placeholder="Username"
+            class="w-full p-3 mb-4 rounded-xl bg-black/30 border border-white/10">
+
+        <input id="password" type="password" placeholder="Password"
+            class="w-full p-3 mb-4 rounded-xl bg-black/30 border border-white/10">
+
+        <button id="loginBtn" class="w-full p-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-bold">
+            Login
+        </button>
+
+        <p id="error" class="text-red-400 text-center mt-3 hidden">Invalid credentials!</p>
+    </div>
+
+    <script>
+        // Change these to your preferred admin username/password
+        const ADMIN_USER = "admin";
+        const ADMIN_PASS = "1234";
+
+        document.getElementById("loginBtn").addEventListener("click", login);
+
+        function login() {
+            let u = document.getElementById("username").value.trim();
+            let p = document.getElementById("password").value.trim();
+
+            if (u === ADMIN_USER && p === ADMIN_PASS) {
+                localStorage.setItem("adminAuth", "true");
+                location.href = "admin.html";
+            } else {
+                document.getElementById("error").classList.remove("hidden");
+            }
+        }
+    </script>
+</body>
+
+</html>

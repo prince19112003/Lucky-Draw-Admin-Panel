@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <title>Lucky Draw — Admin</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+</head>
+
+<body class="bg-gradient-to-br from-slate-900 via-black to-slate-800 text-white min-h-screen">
+
+    <div class="max-w-6xl mx-auto p-6">
+        <!-- header -->
+        <header class="flex items-center justify-between mb-6">
+            <h1 class="text-3xl font-bold">🎟 Lucky Draw — Admin</h1>
+            <div class="flex items-center gap-3">
+                <div id="statusDot" class="w-3 h-3 rounded-full bg-green-400" title="Connected"></div>
+                <button id="logoutBtn" class="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg">Logout</button>
+            </div>
+        </header>
+
+        <!-- controls -->
+        <section class="grid md:grid-cols-3 gap-4 mb-6">
+            <input id="searchInput" placeholder="Search by name or phone..."
+                class="col-span-2 p-3 rounded-xl bg-slate-900 border border-slate-700" />
+            <div class="flex items-center gap-3">
+                <input id="timerInput" type="number" placeholder="Countdown sec (default 5)"
+                    class="w-full p-3 rounded-xl bg-slate-900 border border-slate-700" />
+                <button id="refreshBtn" class="bg-blue-600 hover:bg-blue-500 px-4 py-3 rounded-xl">Refresh</button>
+            </div>
+        </section>
+
+        <!-- stats -->
+        <section class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div class="p-4 rounded-2xl bg-white/5 border border-white/6">
+                <div class="text-sm text-slate-300">Total entries</div>
+                <div id="totalEntries" class="text-2xl font-bold mt-2 text-green-300">—</div>
+            </div>
+            <div class="p-4 rounded-2xl bg-white/5 border border-white/6">
+                <div class="text-sm text-slate-300">Selected Winner</div>
+                <div id="lastWinner" class="text-lg mt-2 text-yellow-300">none</div>
+            </div>
+            <div class="p-4 rounded-2xl bg-white/5 border border-white/6 flex items-center justify-center">
+                <button id="pickBtn" class="bg-emerald-500 hover:bg-emerald-400 px-4 py-3 rounded-xl font-semibold">🎯
+                    Pick Winner</button>
+            </div>
+        </section>
+
+        <!-- table -->
+        <div class="bg-white/5 rounded-2xl border border-white/6 overflow-hidden shadow-lg">
+            <table class="min-w-full">
+                <thead class="bg-slate-900/60">
+                    <tr class="text-left">
+                        <th class="px-4 py-3">Name</th>
+                        <th class="px-4 py-3">Phone</th>
+                        <th class="px-4 py-3">Ticket</th>
+                        <th class="px-4 py-3 text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody" class="divide-y divide-white/6"></tbody>
+            </table>
+            <div id="tableEmpty" class="p-6 text-center text-slate-400 hidden">No entries found.</div>
+        </div>
+
+        <!-- pagination -->
+        <div class="flex items-center justify-between mt-4">
+            <div>
+                <button id="prevBtn" class="px-3 py-2 bg-slate-700 rounded-lg">Prev</button>
+                <button id="nextBtn" class="px-3 py-2 ml-2 bg-slate-700 rounded-lg">Next</button>
+            </div>
+            <div id="pageInfo" class="text-slate-300"></div>
+        </div>
+
+        <!-- winner box / roulette -->
+        <div id="winnerBox"
+            class="mt-8 p-6 rounded-2xl bg-gradient-to-r from-yellow-100/5 to-yellow-50/5 border border-yellow-400/20 hidden text-center">
+            <div class="text-xl font-semibold text-yellow-300 mb-2">🎉 Winner 🎉</div>
+            <div id="roulette" class="text-2xl font-bold text-white opacity-0 transition-all duration-200"></div>
+        </div>
+    </div>
+
+    <script>
+        /****************** CONFIG ******************/
+        const API_URL = "https://script.google.com/macros/s/AKfycbxqgT6FDlo-86Jd0lNNEH_ifh9bxvAiA46sSp6g2TH2iuYA7IUFA5_lL9lT53wEqa4vDA/exec"; // <- your URL
+
+        // pagination
+        let allEntries = [];
+        let filtered = [];
+        let currentPage = 1;
+        const perPage = 8;
+
+        // DOM refs
+        const tableBody = document.getElementById("tableBody");
+        const totalEntriesEl = document.getElementById("totalEntries");
+        const lastWinnerEl = document.getElementById("lastWinner");
+        const pageInfo = document.getElementById("pageInfo");
+        const rouletteEl = document.getElementById("roulette");
+        const winnerBox = document.getElementById("winnerBox");
+        const tableEmpty = document.getElementById("tableEmpty");
+
+        // UI elements
+        const refreshBtn = document.getElementById("refreshBtn");
+        const searchInput = document.getElementById("searchInput");
+        const timerInput = document.getElementById("timerInput");
+        const prevBtn = document.getElementById("prevBtn");
+        const nextBtn = document.getElementById("nextBtn");
+        const pickBtn = document.getElementById("pickBtn");
+        const logoutBtn = document.getElementById("logoutBtn");
+
+        // event listeners
+        refreshBtn.addEventListener("click", loadEntries);
+        searchInput.addEventListener("input", onSearch);
+        prevBtn.addEventListener("click", prevPage);
+        nextBtn.addEventListener("click", nextPage);
+        pickBtn.addEventListener("click", startPick);
+        logoutBtn.addEventListener("click", () => { localStorage.removeItem("adminAuth"); location.href = "admin-login.html"; });
+
+        // require adminAuth set by login page
+        if (!localStorage.getItem("adminAuth")) {
+            alert("Please login as admin first.");
+            location.href = "admin-login.html";
+        }
+
+        // initial load
+        loadEntries();
+
+        /****************** FUNCTIONS ******************/
+        async function loadEntries() {
+            setStatus(true);
+            try {
+                const res = await fetch(API_URL);
+                const data = await res.json();
+                allEntries = Array.isArray(data) ? data : [];
+                // sort by time desc (most recent first)
+                allEntries.sort((a, b) => new Date(b.time) - new Date(a.time));
+                filtered = [...allEntries];
+                currentPage = 1;
+                render();
+            } catch (err) {
+                console.error("Fetch error:", err);
+                alert("Error fetching data. Check API URL and deployment settings.");
+                allEntries = [];
+                filtered = [];
+                render();
+            } finally {
+                setStatus(false);
+            }
+        }
+
+        function render() {
+            const total = filtered.length;
+            totalEntriesEl.innerText = total;
+            const pages = Math.max(1, Math.ceil(total / perPage));
+            if (currentPage > pages) currentPage = pages;
+
+            const start = (currentPage - 1) * perPage;
+            const pageData = filtered.slice(start, start + perPage);
+
+            tableBody.innerHTML = "";
+            if (pageData.length === 0) {
+                tableEmpty.classList.remove("hidden");
+            } else {
+                tableEmpty.classList.add("hidden");
+                pageData.forEach(row => {
+                    const tr = document.createElement("tr");
+                    tr.className = "hover:bg-white/2";
+                    tr.innerHTML = `
+          <td class="px-4 py-3">${escapeHtml(row.name)}</td>
+          <td class="px-4 py-3">${escapeHtml(row.phone)}</td>
+          <td class="px-4 py-3 font-mono text-sm text-emerald-300">${escapeHtml(row.ticket)}</td>
+          <td class="px-4 py-3 text-right">
+            <button class="deleteBtn bg-red-600 hover:bg-red-500 px-3 py-1 rounded-md">Delete</button>
+          </td>
+        `;
+                    tr.querySelector(".deleteBtn").addEventListener("click", () => deleteEntry(row.phone));
+                    tableBody.appendChild(tr);
+                });
+            }
+
+            pageInfo.innerText = `Page ${currentPage} of ${pages}`;
+        }
+
+        function onSearch() {
+            const q = searchInput.value.trim().toLowerCase();
+            filtered = allEntries.filter(e => (e.name || "").toLowerCase().includes(q) || (e.phone || "").toLowerCase().includes(q));
+            currentPage = 1;
+            render();
+        }
+
+        function prevPage() { if (currentPage > 1) { currentPage--; render(); } }
+        function nextPage() { if (currentPage < Math.ceil(filtered.length / perPage)) { currentPage++; render(); } }
+
+        async function deleteEntry(phone) {
+            if (!confirm("Delete this entry?")) return;
+            try {
+                const res = await fetch(API_URL, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: "delete", phone })
+                });
+                const json = await res.json().catch(() => null);
+                // refresh list regardless
+                await loadEntries();
+            } catch (err) {
+                console.error("Delete error:", err);
+                alert("Delete failed.");
+            }
+        }
+
+        // PICKING: fetch fresh list then run roulette
+        async function startPick() {
+            try {
+                const res = await fetch(API_URL);
+                const list = await res.json();
+                if (!Array.isArray(list) || list.length === 0) { alert("No entries!"); return; }
+
+                const seconds = Math.max(2, parseInt(timerInput.value) || 5);
+                runRoulette(list, seconds);
+            } catch (err) {
+                console.error("Pick fetch error:", err);
+                alert("Error fetching entries for pick.");
+            }
+        }
+
+        // ---------------- Upgraded roulette + spotlight + slow-motion + zoom ----------------
+        function runRoulette(list, seconds) {
+            winnerBox.classList.remove("hidden");
+            rouletteEl.style.opacity = "1";
+            rouletteEl.innerText = "Get Ready...";
+
+            // dramatic pre-countdown
+            let remaining = seconds;
+            const countdownInterval = setInterval(() => {
+                rouletteEl.innerText = `Spinning... ${remaining}s`;
+                remaining--;
+                if (remaining < 0) clearInterval(countdownInterval);
+            }, 1000);
+
+            // FAST SPIN EFFECT
+            let cycle = setInterval(() => {
+                const r = list[Math.floor(Math.random() * list.length)];
+                // faded name to create motion effect
+                rouletteEl.innerHTML = `<span class="opacity-80">${escapeHtml(r.name)} — ${escapeHtml(r.ticket)}</span>`;
+            }, 80);
+
+            // FINAL RESULT (slow-motion reveal + zoom-in)
+            setTimeout(() => {
+                clearInterval(cycle);
+
+                const winner = list[Math.floor(Math.random() * list.length)];
+
+                // spotlight + zoom class (Tailwind utility + inline styles for shadow)
+                rouletteEl.innerHTML = `
+                    <div style="transition: transform 700ms cubic-bezier(.2,.9,.3,1); transform: scale(1.35);"
+                         class="inline-block px-4 py-2 rounded-md bg-gradient-to-r from-yellow-400 to-yellow-300 text-slate-900 font-extrabold drop-shadow-[0_0_30px_rgba(250,204,21,0.9)]">
+                        🎉 ${escapeHtml(winner.name)} — ${escapeHtml(winner.ticket)} 🎉
+                    </div>
+                `;
+
+                lastWinnerEl.innerText = `${winner.name} (${winner.ticket})`;
+
+                // confetti wave
+                confettiWave();
+
+                // refresh entries to reflect any changes
+                loadEntries();
+            }, seconds * 1000 + 200);
+        }
+
+        // Confetti wave: continuous for a short duration
+        function confettiWave() {
+            let duration = 2000;
+            let end = Date.now() + duration;
+
+            (function frame() {
+                confetti({
+                    particleCount: 10,
+                    spread: 80,
+                    origin: { y: Math.random() * 0.3 },
+                    gravity: 0.7,
+                    ticks: 160
+                });
+                if (Date.now() < end) requestAnimationFrame(frame);
+            })();
+        }
+
+        // small utils
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return "";
+            return String(str).replace(/[&<>"']/g, s => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[s]));
+        }
+
+        // visual status while fetching
+        function setStatus(isLoading) {
+            const s = document.getElementById("statusDot");
+            if (!s) return;
+            s.style.backgroundColor = isLoading ? "#f59e0b" : "#34d399";
+        }
+    </script>
+</body>
+
+</html>
